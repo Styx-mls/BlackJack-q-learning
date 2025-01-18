@@ -38,16 +38,16 @@ class Player:
         hand_sum = 0
         aces = 0
         
-        for card in self.hand:
-            if card.rank.isalpha() and card.rank != "A":  # Face cards (J, Q, K)
-                hand_sum += 10
-            elif card.rank == "A":  # Ace
-                hand_sum += 11
+        for i in range(len(self.hand)):
+            if self.hand[i].rank.isalpha() and self.hand[i].rank != "A":
+                hand_sum += 10  # Face cards count as 10
+            elif self.hand[i].rank == "A":
+                hand_sum += 11  # Aces initially count as 11
                 aces += 1
-            else:  # Numbered cards
-                hand_sum += int(card.rank)
+            else:
+                hand_sum += int(self.hand[i].rank)  # Number cards are added directly
 
-        # Adjust for Aces if hand value exceeds 21
+        # Adjust Aces if the total exceeds 21
         while hand_sum > 21 and aces:
             hand_sum -= 10
             aces -= 1
@@ -72,9 +72,9 @@ class AI_Player(Player):
         """
         super().__init__()
         self.q_table = {}
-        self.alpha = learning_rate  # Learning rate
-        self.gamma = discount_factor  # Discount factor for future rewards
-        self.epsilon = exploration_rate  # Exploration rate for random actions
+        self.alpha = learning_rate
+        self.gamma = discount_factor
+        self.epsilon = exploration_rate
 
     def get_state(self, player_sum, dealer_card):
         """
@@ -85,15 +85,22 @@ class AI_Player(Player):
             dealer_card (Card): The dealer's visible card.
 
         Returns:
-            tuple: A state representation as (player_sum, dealer_card_value).
+            tuple: A state representation as (player_sum, rank_dealer_card).
         """
-        rank_dealer_card = 10 if dealer_card.rank.isalpha() and dealer_card.rank != 'A' else \
-            11 if dealer_card.rank == 'A' else int(dealer_card.rank)
+        rank_dealer_card = None
+
+        if dealer_card.rank.isalpha() and dealer_card.rank != 'A':
+            rank_dealer_card = 10
+        elif dealer_card.rank == 'A':
+            rank_dealer_card = 11
+        else:
+            rank_dealer_card = int(dealer_card.rank)
+
         return (player_sum, rank_dealer_card)
 
     def choose_action(self, state):
         """
-        Chooses an action (hit or stand) based on the Q-table and exploration rate.
+        Chooses an action (hit or stand) based on exploration and Q-values.
 
         Args:
             state (tuple): The current state.
@@ -101,14 +108,17 @@ class AI_Player(Player):
         Returns:
             str: 'hit' or 'stand'.
         """
-        if random.random() < self.epsilon:  # Explore
-            return random.choice(['hit', 'stand'])
-        # Exploit based on Q-values
-        return 'hit' if self.q_table.get(state, [0, 0])[0] >= self.q_table.get(state, [0, 0])[1] else 'stand'
+        if random.random() < self.epsilon:
+            return random.choice(['hit', 'stand'])  # Random action (exploration)
+
+        if self.q_table.get(state, [0, 0])[0] >= self.q_table.get(state, [0, 0])[1]:
+            return 'hit'
+        else:
+            return 'stand'
 
     def update_q_value(self, state, action, reward, next_state):
         """
-        Updates the Q-value for the given state-action pair using the Q-learning formula.
+        Updates the Q-value for a given state-action pair.
 
         Args:
             state (tuple): The current state.
@@ -117,26 +127,28 @@ class AI_Player(Player):
             next_state (tuple or None): The next state.
         """
         action_index = 0 if action == 'hit' else 1
+
         next_max = max(self.q_table.get(next_state, [0, 0])) if next_state else 0
         old_q = self.q_table.get(state, [0, 0])[action_index]
         new_value = old_q + self.alpha * (reward + self.gamma * next_max - old_q)
 
         if state not in self.q_table:
             self.q_table[state] = [0, 0]
+
         self.q_table[state][action_index] = new_value
 
     def decay_exploration(self, decay_rate):
         """
-        Gradually decreases the exploration rate to encourage exploitation over time.
+        Reduces the exploration rate to encourage exploitation over time.
 
         Args:
-            decay_rate (float): The decay rate for the exploration rate.
+            decay_rate (float): The decay rate for epsilon.
         """
         self.epsilon = max(0.1, self.epsilon * decay_rate)
 
     def train_module(self, n_games=1000):
         """
-        Trains the AI player by simulating games and updating the Q-table.
+        Trains the AI player over a specified number of simulated games.
 
         Args:
             n_games (int): The number of training games.
@@ -156,20 +168,44 @@ class AI_Player(Player):
 
             while not self.busted:
                 choice = self.choose_action(state)
+
                 if choice == 'stand':
                     break
+
                 self.hit(deck)
                 self.is_busted()
-                reward = -1 if self.busted else 1
-                next_state = None if self.busted else self.get_state(self.get_hand_sum(), dealer.hand[0])
+                reward = None
+
+                if self.busted:
+                    reward = -1
+                    next_state = None
+                else:
+                    reward = 1
+                    next_state = self.get_state(self.get_hand_sum(), dealer.hand[0])
+
                 self.update_q_value(state, choice, reward, next_state)
                 state = next_state
+
+            if self.busted:
+                pass
+
+            elif dealer.get_hand_sum() > self.get_hand_sum():
+                reward = -0.5
+                self.update_q_value(state, choice, reward, None)
+
+            elif dealer.get_hand_sum() == self.get_hand_sum():
+                reward = 0.5
+                self.update_q_value(state, choice, reward, None)
+
+            else:
+                reward = 1
+                self.update_q_value(state, choice, reward, None)
 
             self.decay_exploration(0.9999)
 
 class Dealer(Player):
     """
-    Represents the dealer in the card game.
+    Represents the dealer in the card game. Extends the Player class.
     """
 
     def should_hit(self):
@@ -189,7 +225,7 @@ class Dealer(Player):
 
 class Card:
     """
-    Represents a single playing card.
+    Represents a single playing card with a rank and suit.
     """
 
     def __init__(self, rank, suit):
@@ -201,7 +237,7 @@ class Card:
 
 class Deck:
     """
-    Represents a deck of cards.
+    Represents a standard deck of 52 playing cards.
     """
 
     def __init__(self):
@@ -220,7 +256,7 @@ class Deck:
         Deals the top card from the deck.
 
         Returns:
-            Card: The top card.
+            Card: The top card from the deck.
         """
         return self.cards.pop(0)
 
@@ -229,10 +265,10 @@ class Deck:
 
 def get_user_input():
     """
-    Prompts the user to input 'yes' or 'no'.
+    Prompts the user to enter 'yes' or 'no'.
 
     Returns:
-        str: The user's input.
+        str: User's input.
     """
     query = input("Do you wish to watch again? ").strip().lower()
     while query not in ['yes', 'no']:
@@ -287,10 +323,14 @@ def play_game():
                 print("Dealer's hand: ", end="")
                 dealer.show_hand()
                 print("\nDealer busted out. Bot wins!")
-            elif dealer.get_hand_sum() >= p1.get_hand_sum():
+            elif dealer.get_hand_sum() > p1.get_hand_sum():
                 print("Dealer's hand: ", end="")
                 dealer.show_hand()
                 print("\nDealer wins!")
+            elif dealer.get_hand_sum() == p1.get_hand_sum():
+                print("Dealer's hand: ", end="")
+                dealer.show_hand()
+                print("\nTie!")
             else:
                 print("Dealer's hand: ", end="")
                 dealer.show_hand()
